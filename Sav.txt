@@ -1,1 +1,133 @@
+Pour réaliser un hub collaborateur avec PySpark en utilisant une approche de chargement incrémental, voici une procédure en plusieurs étapes, depuis l'extraction des nouvelles données jusqu'au chargement dans le data lake.
+
+Prérequis
+
+1. Data Lake : Un espace de stockage où le hub collaborateur sera mis à jour.
+
+
+2. Spark Session : Assurez-vous que PySpark est bien configuré et que la session Spark est active.
+
+
+
+Structure des Données
+
+Supposons que les données audit_technique et hub_collaborateur se trouvent sous la forme de DataFrames PySpark avec les colonnes :
+
+audit_technique : contient Login, Date, Écran, Action.
+
+hub_collaborateur : contient CollaborateurID, DateAction, Écran, DernièreAction, NbActions.
+
+
+Étapes en PySpark
+
+1. Charger les Données Existantes et les Nouvelles Données
+
+Commencez par charger les données audit_technique et hub_collaborateur depuis le data lake ou une source compatible (HDFS, S3, etc.).
+
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col, count, max as spark_max
+
+spark = SparkSession.builder.appName("HubCollaborateurETL").getOrCreate()
+
+# Charger la table `audit_technique`
+audit_technique_df = spark.read.parquet("path/to/audit_technique")
+
+# Charger le hub collaborateur existant
+hub_collaborateur_df = spark.read.parquet("path/to/hub_collaborateur")
+
+2. Extraire les Nouvelles Données
+
+Filtrer les nouvelles données basées sur la dernière date présente dans le hub_collaborateur.
+
+# Trouver la dernière date de mise à jour dans le hub collaborateur
+last_update_date = hub_collaborateur_df.agg(spark_max("DateAction")).collect()[0][0]
+
+# Filtrer les actions depuis la dernière date de mise à jour
+new_actions_df = audit_technique_df.filter(col("Date") > last_update_date)
+
+3. Transformation des Données pour Calculer les Actions Agrégées
+
+Group by sur Login, Date, et Écran pour obtenir la dernière action et le nombre d’actions.
+
+from pyspark.sql import functions as F
+
+transformed_df = new_actions_df.groupBy("Login", "Date", "Écran") \
+    .agg(F.last("Action").alias("DernièreAction"), count("Action").alias("NbActions"))
+
+4. Joindre avec le Hub Collaborateur pour Identifier les Mises à Jour et les Nouvelles Entrées
+
+Nous faisons un left join avec le hub_collaborateur existant sur les clés CollaborateurID et Écran.
+
+# Renommer les colonnes pour faciliter la jointure
+hub_collaborateur_renamed = hub_collaborateur_df \
+    .withColumnRenamed("CollaborateurID", "Login") \
+    .withColumnRenamed("DateAction", "Date")
+
+# Left join pour obtenir les nouvelles et mises à jour
+updates_df = transformed_df.join(hub_collaborateur_renamed,
+                                 on=["Login", "Date", "Écran"], 
+                                 how="left")
+
+5. Identifier les Nouveaux et Mises à Jour
+
+Détecter les enregistrements existants (mises à jour) et les nouveaux à insérer.
+
+# Filtrer les nouvelles entrées
+new_entries_df = updates_df.filter(col("DernièreAction").isNull()).select("Login", "Date", "Écran", "DernièreAction", "NbActions")
+
+# Filtrer les mises à jour
+updated_entries_df = updates_df.filter(col("DernièreAction").isNotNull()) \
+    .select("Login", "Date", "Écran", "DernièreAction", "NbActions")
+
+6. Charger les Données dans le Hub Collaborateur
+
+Enregistrez les données dans le hub collaborateur en utilisant l'option append pour les nouvelles entrées et overwrite pour les mises à jour.
+
+# Charger les nouvelles entrées dans le hub
+new_entries_df.write.mode("append").parquet("path/to/hub_collaborateur")
+
+# Mettre à jour les entrées existantes
+updated_entries_df.write.mode("overwrite").parquet("path/to/hub_collaborateur")
+
+Option : Utilisation de Merge (Delta Lake)
+
+Si vous utilisez Delta Lake, vous pouvez utiliser une opération de merge pour simplifier la mise à jour incrémentale.
+
+from delta.tables import DeltaTable
+
+# Chemin du hub collaborateur
+delta_path = "path/to/hub_collaborateur_delta"
+
+# Créer ou charger la table Delta
+hub_collaborateur_delta = DeltaTable.forPath(spark, delta_path)
+
+# Exécuter le merge
+hub_collaborateur_delta.alias("hub").merge(
+    transformed_df.alias("updates"),
+    "hub.CollaborateurID = updates.Login AND hub.Écran = updates.Écran AND hub.DateAction = updates.Date"
+).whenMatchedUpdate(
+    set={"DernièreAction": "updates.DernièreAction", "NbActions": "updates.NbActions"}
+).whenNotMatchedInsert(
+    values={
+        "CollaborateurID": "updates.Login",
+        "DateAction": "updates.Date",
+        "Écran": "updates.Écran",
+        "DernièreAction": "updates.DernièreAction",
+        "NbActions": "updates.NbActions"
+    }
+).execute()
+
+Résumé
+
+Chargement incrémental avec filtrage des nouvelles données par Date.
+
+Agrégation des données pour obtenir les actions par collaborateur, écran, et date.
+
+Jointure et détection des nouveaux enregistrements et des mises à jour.
+
+Chargement en append et overwrite ou en merge avec Delta Lake.
+
+
+Cela permet de mettre à jour votre hub collaborateur de manière efficace. N’hésitez pas si vous avez besoin de précisions sur une partie du code ou des étapes !
+
 
