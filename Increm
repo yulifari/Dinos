@@ -1,1 +1,111 @@
 
+Voici un exemple complet en PySpark pour mettre en place un chargement incrémental dans une table cible, en utilisant une approche Upsert avec Delta Lake. Dans cet exemple, nous avons une table source transactions_source et une table cible transactions_target.
+
+La table source contient les colonnes suivantes :
+
+id : Identifiant unique de la transaction
+
+montant : Montant de la transaction
+
+date_modification : Date de la dernière modification (utilisée pour détecter les enregistrements nouveaux ou modifiés)
+
+
+La table cible (transactions_target) conserve les données de transactions et suit les mises à jour.
+
+Préparation : Installer Delta Lake
+
+Si vous ne l'avez pas encore, installez Delta Lake pour PySpark, qui permet d'effectuer des opérations Upsert (insérer et mettre à jour en une seule opération).
+
+pip install delta-spark
+
+Exemple de Code PySpark pour le Chargement Incrémental
+
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col, max as spark_max
+from delta.tables import DeltaTable
+
+# Initialiser SparkSession avec Delta Lake
+spark = SparkSession.builder \
+    .appName("ETLIncremente") \
+    .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension") \
+    .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog") \
+    .getOrCreate()
+
+# Chemins des tables source et cible
+source_path = "path/to/transactions_source"
+target_path = "path/to/transactions_target"
+
+# Charger la table source
+source_df = spark.read.parquet(source_path)
+
+# Vérifier si la table cible existe
+if DeltaTable.isDeltaTable(spark, target_path):
+    # Charger la table cible Delta existante
+    target_delta_table = DeltaTable.forPath(spark, target_path)
+    
+    # Récupérer la date de la dernière mise à jour dans la table cible
+    last_run_date = target_delta_table.toDF().agg(spark_max("date_modification")).collect()[0][0]
+    print("Dernière date de mise à jour:", last_run_date)
+    
+    # Extraire les nouvelles données de la source (ajoutées ou modifiées après la dernière date de mise à jour)
+    incremental_df = source_df.filter(col("date_modification") > last_run_date)
+    
+    # Effectuer l'Upsert (mise à jour + insertion) sur la table Delta
+    target_delta_table.alias("target").merge(
+        incremental_df.alias("source"),
+        "target.id = source.id"  # Condition de correspondance pour l'upsert
+    ).whenMatchedUpdateAll() \
+     .whenNotMatchedInsertAll() \
+     .execute()
+    
+    print("Chargement incrémental terminé.")
+else:
+    # Si la table n'existe pas, créer la table cible et y charger toutes les données
+    source_df.write.format("delta").save(target_path)
+    print("Table cible créée et données chargées.")
+
+Explication du Code
+
+1. Initialisation de Spark avec Delta Lake : Nous configurons Spark pour utiliser Delta Lake, qui nous permet d'effectuer des opérations de merge (indispensables pour l'upsert).
+
+
+2. Chargement de la Table Source : La table source est chargée depuis un dossier en format Parquet (ou un autre format selon vos données sources).
+
+
+3. Vérification de l'Existence de la Table Cible : On vérifie si la table cible existe dans le chemin spécifié.
+
+Si la table cible existe :
+
+Charger la table Delta existante.
+
+Obtenir la date de la dernière mise à jour (last_run_date) dans la table cible.
+
+Extraire les enregistrements nouveaux ou modifiés dans la source depuis la dernière exécution.
+
+Effectuer une opération merge pour insérer les nouvelles lignes et mettre à jour les lignes existantes dans la table cible.
+
+
+Si la table cible n'existe pas :
+
+Créer la table cible en utilisant les données complètes de la source, ce qui se produit typiquement lors de la première exécution.
+
+
+
+
+
+Résultat
+
+Chargement Incrémental : À chaque exécution, seules les données nouvelles ou modifiées depuis la dernière exécution seront extraites et intégrées dans la table cible.
+
+Historique de Modifications : Delta Lake permet de conserver un historique des versions de la table cible, ce qui facilite la récupération ou l'analyse des modifications si nécessaire.
+
+
+Points Clés
+
+Performances : Ce chargement incrémental réduit le temps et les ressources nécessaires en ne traitant que les données nouvelles ou modifiées.
+
+Delta Lake : Utiliser Delta Lake permet de gérer efficacement les opérations Upsert dans un environnement distribué, idéal pour les besoins de chargement incrémental.
+
+
+Ce code constitue une base solide pour les chargements incrémentaux en PySpark, et peut être adapté à différentes sources de données et transformations selon vos besoins.
+
