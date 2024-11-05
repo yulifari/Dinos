@@ -109,3 +109,29 @@ Delta Lake : Utiliser Delta Lake permet de gérer efficacement les opérations U
 
 Ce code constitue une base solide pour les chargements incrémentaux en PySpark, et peut être adapté à différentes sources de données et transformations selon vos besoins.
 
+
+from pyspark.sql.functions import col, regexp_replace
+
+def remove_quotes_from_keys(df, json_column):
+    """
+    Crée un nouveau DataFrame avec les clés du JSON sans guillemets.
+
+    Args:
+        df: Le DataFrame d'origine.
+        json_column: Le nom de la colonne contenant le JSON.
+
+    Returns:
+        Un nouveau DataFrame avec les clés renommées.
+    """
+
+    def rename_key(json_str):
+        import json
+        data = json.loads(json_str)
+        new_data = {}
+        for key, value in data.items():
+            new_key = key.replace('"', '')
+            new_data[new_key] = value
+        return json.dumps(new_data)
+
+    return df.withColumn(json_column, regexp_replace(col(json_column), r'"(\w+)":', r'\1:'))
+
