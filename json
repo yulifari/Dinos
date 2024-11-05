@@ -1,0 +1,34 @@
+from pyspark.sql.functions import col, udf
+from pyspark.sql.types import StringType
+import json
+
+def rename_key(json_str):
+    """
+    Renomme les clés d'un JSON en supprimant les guillemets doubles.
+
+    Args:
+        json_str: Une chaîne de caractères représentant un JSON.
+
+    Returns:
+        Une chaîne de caractères représentant le JSON avec les clés renommées.
+    """
+    data = json.loads(json_str)
+    new_data = {}
+    for key, value in data.items():
+        new_key = key.replace('"', '')
+        new_data[new_key] = value
+    return json.dumps(new_data)
+
+def remove_quotes_from_keys(df, json_column):
+    """
+    Crée un nouveau DataFrame avec les clés du JSON sans guillemets.
+
+    Args:
+        df: Le DataFrame d'origine.
+        json_column: Le nom de la colonne contenant le JSON.
+
+    Returns:
+        Un nouveau DataFrame avec les clés renommées.
+    """
+    rename_udf = udf(rename_key, StringType())
+    return df.withColumn(json_column, rename_udf(col(json_column)))
