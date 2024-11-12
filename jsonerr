@@ -1,0 +1,42 @@
+L'erreur "Column is not iterable" survient souvent dans PySpark lorsqu'on tente de traiter une colonne directement comme un objet au lieu d'utiliser des fonctions adaptées pour manipuler les colonnes de DataFrame. Pour extraire les clés et valeurs d'une colonne JSON dans un DataFrame, vous pouvez utiliser get_json_object ou from_json à la place de json_tuple, qui ne fonctionne que pour les JSON plats. Voici un exemple pour vous guider :
+
+Exemple avec get_json_object
+
+Supposons que vous ayez un DataFrame df avec une colonne JSON appelée json_column.
+
+1. Extraire une clé spécifique :
+
+from pyspark.sql.functions import get_json_object
+
+# Extrait la valeur de la clé 'key1' depuis la colonne JSON
+df = df.withColumn("key1_value", get_json_object(df["json_column"], "$.key1"))
+
+
+2. Extraire plusieurs clés :
+
+keys = ["key1", "key2", "key3"]
+for key in keys:
+    df = df.withColumn(f"{key}_value", get_json_object(df["json_column"], f"$.{key}"))
+
+
+
+Exemple avec from_json
+
+Si le JSON est complexe et contient des sous-niveaux, utilisez from_json pour le convertir en structure structurée (comme un StructType) :
+
+from pyspark.sql.functions import from_json
+from pyspark.sql.types import StructType, StructField, StringType
+
+# Schéma pour la colonne JSON
+schema = StructType([
+    StructField("key1", StringType(), True),
+    StructField("key2", StringType(), True)
+])
+
+df = df.withColumn("json_struct", from_json(df["json_column"], schema))
+
+# Accéder aux colonnes individuellement
+df = df.withColumn("key1_value", df["json_struct.key1"])
+
+Ces méthodes devraient vous permettre d'extraire les clés et valeurs de manière plus fiable sans rencontrer l'erreur "Column is not iterable".
+
