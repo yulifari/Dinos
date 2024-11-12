@@ -40,3 +40,56 @@ df = df.withColumn("key1_value", df["json_struct.key1"])
 
 Ces méthodes devraient vous permettre d'extraire les clés et valeurs de manière plus fiable sans rencontrer l'erreur "Column is not iterable".
 
+
+
+Si get_json_object ou from_json retourne des null, cela peut être dû à un format JSON mal interprété. Voici quelques vérifications et alternatives pour résoudre le problème :
+
+1. Vérifiez le format JSON
+Assurez-vous que la colonne JSON est bien au format JSON. Vous pouvez afficher les premières lignes pour vérifier :
+
+df.select("json_column").show(truncate=False)
+
+
+2. Vérifiez le niveau d'imbrication des clés
+get_json_object utilise une syntaxe de type $.key1 pour une clé au niveau supérieur. Si les clés sont imbriquées, par exemple {"key1": {"subkey": "value"}}, vous devrez ajuster le chemin, par exemple $.key1.subkey.
+
+
+3. Conversion en chaîne
+Parfois, une colonne JSON peut être au format StructType au lieu de chaîne. Dans ce cas, convertissez-la en chaîne avant d'utiliser get_json_object :
+
+from pyspark.sql.functions import col
+
+df = df.withColumn("json_column_str", col("json_column").cast("string"))
+df = df.withColumn("key1_value", get_json_object(col("json_column_str"), "$.key1"))
+
+
+4. Utilisation de from_json avec un schéma approprié
+Assurez-vous que le schéma utilisé correspond exactement aux clés et aux types de données du JSON. Par exemple :
+
+from pyspark.sql.types import StructType, StructField, StringType, IntegerType
+
+schema = StructType([
+    StructField("key1", StringType(), True),
+    StructField("key2", StructType([
+        StructField("subkey1", IntegerType(), True)
+    ]), True)
+])
+
+df = df.withColumn("json_struct", from_json(col("json_column_str"), schema))
+df = df.withColumn("key1_value", col("json_struct.key1"))
+df = df.withColumn("subkey1_value", col("json_struct.key2.subkey1"))
+
+
+5. Utilisez regexp_extract comme alternative
+Si le format est simple, vous pouvez utiliser une expression régulière pour extraire la valeur d’une clé :
+
+from pyspark.sql.functions import regexp_extract
+
+df = df.withColumn("key1_value", regexp_extract(col("json_column_str"), '"key1":"([^"]+)"', 1))
+
+
+
+En essayant ces options, vous devriez pouvoir isoler la cause du problème null.
+
+
+
