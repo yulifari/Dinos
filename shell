@@ -1,0 +1,47 @@
+Voici une version du script de purge utilisant uniquement des commandes shell pour conserver uniquement les deux dates les plus récentes dans les répertoires d'archives de tables Hive sur HDFS. Ce script utilise des commandes hdfs dfs et awk pour extraire les dates et supprimer les anciens répertoires.
+
+Script Shell pour la purge des répertoires Hive sur HDFS
+
+#!/bin/bash
+
+# Répertoire principal des archives Hive sur HDFS
+HDFS_DIRECTORY="/user/hive/warehouse/nom_table/archive"
+
+# Lister les sous-répertoires avec leurs dates de création et les trier
+# Supposons que le format du chemin soit "year=YYYY/month=MM/day=DD" pour chaque date d'archive.
+hdfs dfs -ls -R "$HDFS_DIRECTORY" | \
+awk '{print $6" "$8}' | \
+grep -oE '/year=[0-9]{4}/month=[0-9]{2}/day=[0-9]{2}' | \
+sort -u | \
+sort -r | \
+tail -n +3 > old_directories.txt
+
+# Lire le fichier des répertoires à supprimer
+while IFS= read -r dir; do
+    # Supprimer chaque répertoire trouvé dans old_directories.txt
+    hdfs dfs -rm -r "$dir"
+done < old_directories.txt
+
+# Supprimer le fichier temporaire
+rm old_directories.txt
+
+Explication du script
+
+1. Lister les sous-répertoires : hdfs dfs -ls -R "$HDFS_DIRECTORY" liste tous les répertoires de manière récursive avec leur date.
+
+
+2. Extraction des dates : awk '{print $6" "$8}' récupère la date et le chemin. Ensuite, grep -oE '/year=[0-9]{4}/month=[0-9]{2}/day=[0-9]{2}' extrait uniquement le format de date des chemins d'archive.
+
+
+3. Tri et filtrage : sort -u | sort -r trie les dates par ordre décroissant, puis tail -n +3 ignore les deux dates les plus récentes, ne laissant que les répertoires anciens dans old_directories.txt.
+
+
+4. Suppression des anciens répertoires : La boucle while lit chaque ligne de old_directories.txt et utilise hdfs dfs -rm -r "$dir" pour supprimer chaque répertoire obsolète.
+
+
+5. Nettoyage : rm old_directories.txt supprime le fichier temporaire après le traitement.
+
+
+
+Ce script shell est rapide et efficace pour la purge HDFS en conservant uniquement les deux dernières dates d'archive. Assurez-vous d’avoir les permissions nécessaires pour exécuter ces commandes HDFS.
+
