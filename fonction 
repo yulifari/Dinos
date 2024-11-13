@@ -1,0 +1,40 @@
+Vous pouvez utiliser PySpark pour accomplir cela en utilisant des jointures pour vérifier si les valeurs de login existent dans les dataframes evaluation_kyc_df et historique_df. Voici un exemple de code pour ajouter une nouvelle colonne fonction_collaborateur dans df en fonction de l'existence de login dans les deux autres dataframes.
+
+from pyspark.sql import functions as F
+
+# Vérifier si le login existe dans evaluation_kyc_df
+df = df.alias("df").join(evaluation_kyc_df.select("login").distinct().withColumn("in_evaluation", F.lit(1)), 
+                         on="login", how="left").fillna(0, subset=["in_evaluation"])
+
+# Vérifier si le login existe dans historique_df
+df = df.alias("df").join(historique_df.select("login").distinct().withColumn("in_historique", F.lit(1)), 
+                         on="login", how="left").fillna(0, subset=["in_historique"])
+
+# Créer la colonne fonction_collaborateur
+df = df.withColumn(
+    "fonction_collaborateur", 
+    F.when((F.col("in_evaluation") == 1) & (F.col("in_historique") == 1), "Présent dans les deux")
+     .when(F.col("in_evaluation") == 1, "Présent dans evaluation_kyc")
+     .when(F.col("in_historique") == 1, "Présent dans historique")
+     .otherwise("Absent des deux")
+).drop("in_evaluation", "in_historique")
+
+df.show()
+
+Explication :
+
+1. On effectue une jointure gauche entre df et evaluation_kyc_df sur la colonne login et on ajoute une colonne temporaire in_evaluation pour indiquer si le login existe dans evaluation_kyc_df.
+
+
+2. On fait la même chose avec historique_df et ajoute une colonne in_historique.
+
+
+3. On crée fonction_collaborateur en utilisant des conditions basées sur la présence de login dans evaluation_kyc_df et historique_df.
+
+
+4. On retire les colonnes temporaires in_evaluation et in_historique.
+
+
+
+Ce code vous permettra d'obtenir la colonne souhaitée avec le statut de chaque login.
+
