@@ -1,0 +1,124 @@
+Si la commande hdfs dfs -ls ne donne pas le chemin absolu des sous-dossiers, il est nécessaire de construire le chemin absolu en fonction du dossier parent. Voici une version adaptée du script pour garantir que les chemins complets soient utilisés :
+
+
+---
+
+Script Corrigé : Construction des Chemins Absolus
+
+#!/bin/bash
+
+# Répertoire principal des archives
+HDFS_DIRECTORY="/dev/archives"
+
+# Vérifier si Kerberos est nécessaire
+if ! klist >/dev/null 2>&1; then
+    echo "Erreur : Aucun ticket Kerberos valide. Exécutez 'kinit' pour vous authentifier."
+    exit 1
+fi
+
+# Parcourir chaque dossier correspondant à une table
+for table_dir in $(hdfs dfs -ls "$HDFS_DIRECTORY" | awk '{print $8}'); do
+    echo "Traitement des archives pour la table : $table_dir"
+    
+    # Vérifier si le répertoire de la table est vide
+    if [ -z "$(hdfs dfs -ls "$table_dir" 2>/dev/null)" ]; then
+        echo "Aucune archive trouvée dans $table_dir"
+        continue
+    fi
+
+    # Lister les sous-dossiers, trier par ordre décroissant
+    archives=$(hdfs dfs -ls "$table_dir" | \
+        awk '{print $8}' | \
+        xargs -I {} echo "$table_dir/{}" | \
+        sort -r)
+
+    # Vérifier qu'il y a au moins trois archives
+    if [ "$(echo "$archives" | wc -l)" -le 2 ]; then
+        echo "Moins de deux archives disponibles dans $table_dir, aucune suppression nécessaire."
+        continue
+    fi
+
+    # Identifier les archives à supprimer (toutes sauf les 2 plus récentes)
+    old_archives=$(echo "$archives" | tail -n +3)
+
+    # Supprimer les dossiers obsolètes
+    for archive in $old_archives; do
+        echo "Suppression de : $archive"
+        hdfs dfs -rm -r "$archive"
+        if [ $? -ne 0 ]; then
+            echo "Erreur : Impossible de supprimer $archive"
+        fi
+    done
+done
+
+
+---
+
+Modifications
+
+1. Construction des Chemins Absolus
+La commande awk '{print $8}' ne retourne que le nom du sous-dossier. Le script utilise xargs pour concaténer le chemin absolu du dossier parent.
+
+Exemple : Si le chemin de la table est /dev/archives/Ta_audit et que le sous-dossier est 20240101-001-Ta_audit, la commande construit le chemin complet /dev/archives/Ta_audit/20240101-001-Ta_audit.
+
+
+2. Suppression Sécurisée avec Chemins Complets
+Les commandes de suppression utilisent désormais les chemins complets, assurant qu'aucun fichier ou dossier inattendu ne soit supprimé.
+
+
+
+
+---
+
+Étapes pour Tester
+
+1. Lister les Sous-dossiers avec Chemins Complets Testez la commande suivante pour voir si elle construit les chemins absolus correctement :
+
+hdfs dfs -ls /dev/archives/Ta_audit | \
+awk '{print $8}' | \
+xargs -I {} echo "/dev/archives/Ta_audit/{}"
+
+
+2. Simuler la Suppression Modifiez temporairement la commande de suppression pour voir les chemins des dossiers qui seraient supprimés :
+
+echo "Suppression simulée de : $archive"
+
+
+3. Exécuter le Script Une fois validé, exécutez le script complet.
+
+
+
+
+---
+
+Exemple de Sortie Attendue
+
+Si le répertoire /dev/archives/Ta_audit contient :
+
+20240101-001-Ta_audit
+20240102-002-Ta_audit
+20240103-003-Ta_audit
+20240104-004-Ta_audit
+
+La commande construira les chemins absolus :
+
+/dev/archives/Ta_audit/20240101-001-Ta_audit
+/dev/archives/Ta_audit/20240102-002-Ta_audit
+/dev/archives/Ta_audit/20240103-003-Ta_audit
+/dev/archives/Ta_audit/20240104-004-Ta_audit
+
+Les deux plus récentes seront conservées (20240104 et 20240103), et les autres seront supprimées.
+
+Sortie simulée :
+
+Traitement des archives pour la table : /dev/archives/Ta_audit
+Suppression simulée de : /dev/archives/Ta_audit/20240102-002-Ta_audit
+Suppression simulée de : /dev/archives/Ta_audit/20240101-001-Ta_audit
+
+
+---
+
+Si un problème persiste, partagez la sortie réelle de la commande suivante pour une table :
+
+hdfs dfs -ls /dev/archives/Ta_audit
+
