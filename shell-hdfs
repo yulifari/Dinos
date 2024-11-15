@@ -1,0 +1,74 @@
+Voici un script shell adapté à votre arborescence, où le répertoire /dev/archives contient des sous-dossiers (noms des tables) et chaque sous-dossier contient des archives organisées par des noms de dossiers au format yyyymmjj-numero-de-sequence-nom_table. Ce script conserve uniquement les deux archives les plus récentes pour chaque table.
+
+Script Shell Adapté
+
+#!/bin/bash
+
+# Répertoire principal des archives
+HDFS_DIRECTORY="/dev/archives"
+
+# Parcourir chaque dossier correspondant à une table
+for table_dir in $(hdfs dfs -ls "$HDFS_DIRECTORY" | awk '{print $8}'); do
+    echo "Traitement des archives pour la table : $table_dir"
+    
+    # Lister les sous-dossiers, extraire la date, trier par date décroissante
+    hdfs dfs -ls "$table_dir" | \
+    awk '{print $8}' | \
+    grep -oE '[0-9]{8}-[0-9]+-.+' | \
+    sort -r | \
+    tail -n +3 > old_archives.txt
+    
+    # Supprimer les dossiers obsolètes
+    while IFS= read -r archive; do
+        echo "Suppression de : $table_dir/$archive"
+        hdfs dfs -rm -r "$table_dir/$archive"
+    done < old_archives.txt
+done
+
+# Nettoyage du fichier temporaire
+rm old_archives.txt
+
+Explication du Script
+
+1. Parcourir les répertoires de tables :
+
+La commande hdfs dfs -ls "$HDFS_DIRECTORY" liste tous les sous-dossiers au niveau racine (les noms des tables).
+
+Une boucle for traite chaque table.
+
+
+
+2. Lister et trier les archives par date :
+
+Dans chaque sous-dossier (table_dir), on utilise hdfs dfs -ls pour lister les sous-dossiers.
+
+grep -oE '[0-9]{8}-[0-9]+-.+' extrait uniquement les noms des archives au format yyyymmjj-numero-de-sequence-nom_table.
+
+sort -r trie les noms des archives par date (ordre décroissant).
+
+tail -n +3 ignore les deux archives les plus récentes et liste les anciennes archives dans un fichier temporaire old_archives.txt.
+
+
+
+3. Suppression des archives obsolètes :
+
+Une boucle while lit chaque ligne de old_archives.txt et supprime les répertoires correspondants avec hdfs dfs -rm -r.
+
+
+
+4. Nettoyage :
+
+Le fichier temporaire old_archives.txt est supprimé une fois les suppressions terminées.
+
+
+
+
+Points Importants
+
+Structure des archives : Le script suppose que chaque sous-dossier (table) contient des archives au format yyyymmjj-numero-de-sequence-nom_table.
+
+Exécution : Vous devez avoir les permissions nécessaires pour accéder et supprimer les répertoires HDFS.
+
+Testez d'abord : Avant d'ex
+
+
