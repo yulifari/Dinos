@@ -1,0 +1,62 @@
+Pour effectuer cette purge avec Python ou PySpark, voici une approche qui lit l'arborescence HDFS, trie les archives par date et supprime les plus anciennes tout en conservant les deux plus récentes.
+
+
+---
+
+Avec Python (Utilisation de pydoop pour HDFS)
+
+La bibliothèque pydoop permet d’interagir facilement avec HDFS en Python. Voici un script de purge :
+
+Script Python avec pydoop
+
+import pydoop.hdfs as hdfs
+
+# Répertoire principal des archives
+HDFS_DIRECTORY = "/dev/archives"
+
+def purge_archives(hdfs_dir):
+    # Lister les dossiers de tables
+    table_dirs = hdfs.ls(hdfs_dir)
+
+    for table_dir in table_dirs:
+        print(f"Traitement des archives pour la table : {table_dir}")
+
+        # Lister les sous-dossiers (archives) pour cette table
+        archives = hdfs.ls(table_dir)
+        if len(archives) <= 2:
+            print(f"Moins de deux archives disponibles dans {table_dir}, aucune suppression nécessaire.")
+            continue
+
+        # Trier les archives par ordre décroissant
+        archives.sort(reverse=True)
+
+        # Identifier les archives à supprimer
+        old_archives = archives[2:]  # Conserver les deux plus récentes
+
+        # Supprimer les anciennes archives
+        for archive in old_archives:
+            print(f"Suppression de : {archive}")
+            hdfs.rm(archive, recursive=True)
+
+# Appeler la fonction de purge
+if __name__ == "__main__":
+    if hdfs.path.exists(HDFS_DIRECTORY):
+        purge_archives(HDFS_DIRECTORY)
+    else:
+        print(f"Répertoire {HDFS_DIRECTORY} introuvable.")
+
+Explications
+
+1. hdfs.ls(directory)
+Récupère la liste des répertoires et fichiers dans le répertoire spécifié.
+
+
+2. Tri des Archives
+Le tri (archives.sort(reverse=True)) garantit que les archives sont triées par ordre décroissant pour conserver les plus récentes.
+
+
+3. Suppression des Archives Anciennes
+Utilise `h
+
+
+
