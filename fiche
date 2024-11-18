@@ -1,0 +1,79 @@
+Voici une solution avec ksh qui déplace d'abord les deux dossiers les plus récents vers un répertoire temporaire, supprime tout le répertoire de la table, puis remet les deux dossiers récents en place.
+
+
+---
+
+Script KSH
+
+#!/bin/ksh
+
+# Répertoire principal des archives
+HDFS_DIRECTORY="/dev/archives"
+TEMP_DIRECTORY="/dev/tmp"
+
+# Vérifier si Kerberos est nécessaire
+if ! klist >/dev/null 2>&1; then
+    echo "Erreur : Aucun ticket Kerberos valide. Exécutez 'kinit' pour vous authentifier."
+    exit 1
+fi
+
+# Parcourir chaque dossier correspondant à une table
+for table_dir in $(hdfs dfs -ls "$HDFS_DIRECTORY" | awk '{print $8}'); do
+    echo "Traitement des archives pour la table : $table_dir"
+
+    # Vérifier si le répertoire de la table est vide
+    archives=$(hdfs dfs -ls "$table_dir" 2>/dev/null | awk '{print $8}')
+    if [ -z "$archives" ]; then
+        echo "Aucune archive trouvée dans $table_dir"
+        continue
+    fi
+
+    # Trier les sous-dossiers par ordre décroissant
+    sorted_archives=$(echo "$archives" | sort -r)
+
+    # Déplacer les deux plus récentes dans le répertoire temporaire
+    echo "Déplacement des deux archives les plus récentes vers $TEMP_DIRECTORY"
+    recent_archives=$(echo "$sorted_archives" | head -n 2)
+    for archive in $recent_archives; do
+        hdfs dfs -mv "$archive" "$TEMP_DIRECTORY/"
+        if [ $? -ne 0 ]; then
+            echo "Erreur : Impossible de déplacer $archive"
+            exit 1
+        fi
+    done
+
+    # Supprimer tout le répertoire de la table
+    echo "Suppression du répertoire : $table_dir"
+    hdfs dfs -rm -r "$table_dir"
+    if [ $? -ne 0 ]; then
+        echo "Erreur : Impossible de supprimer $table_dir"
+        exit 1
+    fi
+
+    # Recréer le répertoire et remettre les deux archives
+    echo "Remise en place des deux archives dans $table_dir"
+    hdfs dfs -mkdir -p "$table_dir"
+    for archive in $recent_archives; do
+        archive_name=$(basename "$archive")
+        hdfs dfs -mv "$TEMP_DIRECTORY/$archive_name" "$table_dir/"
+        if [ $? -ne 0 ]; then
+            echo "Erreur : Impossible de déplacer $archive_name vers $table_dir"
+            exit 1
+        fi
+    done
+done
+
+
+---
+
+Explications
+
+1. Déplacement des Archives Récentes
+
+Les deux dossiers les plus récents sont identifiés avec head -n 2 après tri avec sort -r.
+
+Les commandes `h
+
+
+
+
