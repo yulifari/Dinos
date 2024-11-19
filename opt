@@ -1,0 +1,144 @@
+Pour optimiser le script qui dure actuellement 3 heures, plusieurs améliorations peuvent être apportées. Ces optimisations concernent la réduction des appels à hdfs dfs, l'amélioration de la gestion des données, et la minimisation des opérations redondantes.
+
+
+---
+
+Optimisations Proposées
+
+1. Réduire les Appels à hdfs dfs
+
+Lister tous les sous-dossiers d'une table en une seule fois, puis traiter les données localement sans effectuer de multiples appels.
+
+
+
+2. Supprimer en Masse
+
+Au lieu de supprimer les dossiers un par un, regrouper les anciens dossiers à supprimer et les traiter en une seule commande hdfs dfs -rm.
+
+
+
+3. Traitement Concurrent
+
+Si le système le permet, exécuter le traitement des tables en parallèle pour réduire la durée totale.
+
+
+
+
+
+---
+
+Script Optimisé
+
+#!/bin/ksh
+
+# Répertoire principal des archives
+HDFS_DIRECTORY="/dev/archives"
+
+# Vérifier si Kerberos est nécessaire
+if ! klist >/dev/null 2>&1; then
+    echo "Erreur : Aucun ticket Kerberos valide. Exécutez 'kinit' pour vous authentifier."
+    exit 1
+fi
+
+# Fonction pour traiter une table
+process_table() {
+    table_dir=$1
+
+    echo "Traitement des archives pour la table : $table_dir"
+
+    # Lister les sous-dossiers (archives) pour cette table
+    archives=$(hdfs dfs -ls "$table_dir" 2>/dev/null | awk '{print $8}')
+    if [ -z "$archives" ]; then
+        echo "Aucune archive trouvée dans $table_dir"
+        return
+    fi
+
+    # Trier les sous-dossiers par ordre décroissant
+    sorted_archives=$(echo "$archives" | sort -r)
+
+    # Identifier les archives à conserver (les 2 plus récentes)
+    recent_archives=$(echo "$sorted_archives" | head -n 2)
+    old_archives=$(echo "$sorted_archives" | tail -n +3)
+
+    # Supprimer les anciennes archives en une seule commande
+    if [ -n "$old_archives" ]; then
+        echo "Suppression des anciennes archives dans $table_dir"
+        hdfs dfs -rm -r $old_archives
+        if [ $? -ne 0 ]; then
+            echo "Erreur : Impossible de supprimer certaines archives dans $table_dir"
+        fi
+    else
+        echo "Aucune archive ancienne à supprimer dans $table_dir"
+    fi
+}
+
+export -f process_table
+
+# Lancer le traitement pour chaque table en parallèle
+hdfs dfs -ls "$HDFS_DIRECTORY" | awk '{print $8}' | xargs -n 1 -P 4 -I {} ksh -c 'process_table "{}"'
+
+
+---
+
+Explications des Optimisations
+
+1. Regrouper les Supressions
+
+La commande hdfs dfs -rm -r $old_archives supprime tous les répertoires obsolètes en un seul appel, réduisant ainsi le temps d’exécution.
+
+
+
+2. Traitement Concurrent avec xargs -P
+
+Le traitement des répertoires de tables est parallélisé avec xargs -P 4. Cela permet de traiter plusieurs tables simultanément en utilisant 4 processus (modifiable selon votre système).
+
+
+
+3. Réduction des Appels Redondants
+
+Les listes de fichiers sont récupérées une seule fois par répertoire de table, et toutes les opérations (tri, sélection des archives) sont effectuées en mémoire.
+
+
+
+4. Gestion des Erreurs
+
+Chaque opération vérifie son succès pour éviter que des erreurs ne bloquent l'ensemble du processus.
+
+
+
+
+
+---
+
+Résultats Attendus
+
+Durée Réduite : La parallélisation et la suppression en masse réduiront significativement le temps global d’exécution.
+
+Moins de Charge Réseau : Moins d'appels à hdfs dfs signifie une réduction de la surcharge réseau.
+
+Traitement Robuste : Le script est conçu pour gérer les erreurs tout en continuant les opérations sur d'autres tables.
+
+
+
+---
+
+Tester et Ajuster
+
+1. Testez sur un Sous-ensemble Exécutez le script sur un répertoire de test pour vérifier les résultats et ajuster les paramètres de parallélisation.
+
+HDFS_DIRECTORY="/dev/archives/test" ./purge_script.ksh
+
+
+2. Ajustez le Niveau de Parallélisme Modifiez la valeur -P 4 dans xargs pour augmenter ou réduire le nombre de processus parallèles selon vos ressources.
+
+
+3. Surveillez les Performances
+Utilisez top ou htop pour surveiller l'utilisation CPU/Mémoire pendant l'exécution et ajustez si nécessaire.
+
+
+
+
+---
+
+Si la parallélisation est limitée ou non souhaitée, une autre optimisation pourrait consister à réécrire le script en Python ou PySpark pour exploiter leur capacité de traitement distribué.
+
