@@ -1,3 +1,128 @@
+
+Si votre shell ne reconnaît pas la commande export -f, cela signifie probablement que vous utilisez un environnement où les fonctions ne peuvent pas être exportées pour être utilisées dans des sous-processus. Dans ce cas, vous devez ajuster le script pour éviter d'utiliser export -f. Voici une version corrigée du script qui ne dépend pas de cette fonctionnalité.
+
+
+---
+
+Script KSH Amélioré (Sans export -f)
+
+#!/bin/ksh
+
+# Répertoire principal des archives
+HDFS_DIRECTORY="/dev/archives"
+
+# Vérifier si Kerberos est nécessaire
+if ! klist >/dev/null 2>&1; then
+    echo "Erreur : Aucun ticket Kerberos valide. Exécutez 'kinit' pour vous authentifier."
+    exit 1
+fi
+
+# Traitement des archives pour une table
+process_table() {
+    table_dir="$1"
+
+    echo "Traitement des archives pour la table : $table_dir"
+
+    # Lister les sous-dossiers (archives) pour cette table
+    archives=$(hdfs dfs -ls "$table_dir" 2>/dev/null | awk '{print $8}')
+    if [ -z "$archives" ]; then
+        echo "Aucune archive trouvée dans $table_dir"
+        return
+    fi
+
+    # Trier les sous-dossiers par ordre décroissant
+    sorted_archives=$(echo "$archives" | sort -r)
+
+    # Identifier les archives à conserver (les 2 plus récentes)
+    recent_archives=$(echo "$sorted_archives" | head -n 2)
+    old_archives=$(echo "$sorted_archives" | tail -n +3)
+
+    # Supprimer les anciennes archives en une seule commande
+    if [ -n "$old_archives" ]; then
+        echo "Suppression des anciennes archives dans $table_dir"
+        echo "$old_archives" | xargs hdfs dfs -rm -r
+        if [ $? -ne 0 ]; then
+            echo "Erreur : Impossible de supprimer certaines archives dans $table_dir"
+        fi
+    else
+        echo "Aucune archive ancienne à supprimer dans $table_dir"
+    fi
+}
+
+# Lancer le traitement pour chaque table
+hdfs dfs -ls "$HDFS_DIRECTORY" | awk '{print $8}' | while read -r table_dir; do
+    process_table "$table_dir"
+done
+
+
+---
+
+Explications des Changements
+
+1. Déplacement de la Fonction dans la Boucle
+
+La fonction process_table est définie directement dans le script principal, ce qui permet de l'utiliser sans avoir à l'exporter.
+
+
+
+2. Suppression de export -f
+
+Cette commande est remplacée par une simple invocation locale de la fonction.
+
+
+
+3. Boucle Sécurisée
+
+La boucle while read -r lit les noms de répertoire ligne par ligne, sans nécessiter de sous-processus.
+
+
+
+4. Compatibilité Maximale
+
+Ce script fonctionne sur des systèmes où les exportations de fonctions ne sont pas prises en charge, tout en restant lisible et simple à déployer.
+
+
+
+
+
+---
+
+Tester et Exécuter
+
+1. Validation des Tables
+Vérifiez que la commande suivante retourne correctement tous les répertoires des tables :
+
+hdfs dfs -ls /dev/archives | awk '{print $8}'
+
+
+2. Exécution pour Toutes les Tables
+Lancez simplement le script :
+
+./purge_script.ksh
+
+
+
+
+---
+
+Résultat Attendu
+
+1. Toutes les tables dans /dev/archives sont correctement traitées.
+
+
+2. Les deux archives les plus récentes dans chaque table sont conservées.
+
+
+3. Les autres archives sont supprimées.
+
+
+
+Si vous rencontrez d'autres problèmes, fournissez la sortie complète ou les logs d'erreur pour une assistance supplémentaire.
+
+
+
+
+
 Pour optimiser le script qui dure actuellement 3 heures, plusieurs améliorations peuvent être apportées. Ces optimisations concernent la réduction des appels à hdfs dfs, l'amélioration de la gestion des données, et la minimisation des opérations redondantes.
 
 
