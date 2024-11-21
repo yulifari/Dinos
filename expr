@@ -1,3 +1,151 @@
+
+Si la liste des dossiers retournée est vide, cela peut être dû à une erreur dans le filtrage des noms ou à une mauvaise correspondance des chemins et noms de fichiers. Voici les étapes pour déboguer et corriger cela :
+
+
+---
+
+Étape 1 : Vérifier le contenu brut de la commande hdfs dfs -ls
+
+Exécutez manuellement cette commande pour vérifier si les chemins absolus et les noms des fichiers sont listés correctement.
+
+hdfs dfs -ls /dev/archive
+
+Si cela ne retourne rien, assurez-vous que :
+
+1. Le dossier /dev/archive existe.
+
+
+2. Les permissions HDFS permettent de lire son contenu.
+
+
+
+Si le dossier contient des sous-dossiers, passez au diagnostic suivant.
+
+
+---
+
+Étape 2 : Diagnostiquer le filtrage dans awk
+
+Modifiez temporairement le script pour afficher tous les dossiers avant application du filtrage, en supprimant la validation des noms.
+
+Ajoutez cette commande dans process_table :
+
+hdfs dfs -ls "$table_dir"
+
+Cela affichera le contenu brut des sous-dossiers pour vérifier leur structure. Regardez les noms et validez qu'ils suivent le format attendu (yyyymmjj_hhmmss_nom_table).
+
+
+---
+
+Étape 3 : Adapter le filtre awk
+
+Si les noms des sous-dossiers ont des écarts mineurs par rapport au format attendu, ajustez le filtre. Par exemple :
+
+Cas 1 : Problème avec le nom de table inclus dans le dossier
+
+Si la partie nom_table est différente, essayez de supprimer la vérification du nom de table dans le filtre :
+
+$8 ~ /^[0-9]{8}_[0-9]{6}_[a-zA-Z0-9_]+$/
+
+Cas 2 : Les chemins ne sont pas interprétés comme absolus
+
+Ajoutez cette commande après avoir listé les sous-dossiers pour valider les chemins absolus :
+
+echo "$folders"
+
+
+---
+
+Étape 4 : Version révisée avec debug intégré
+
+Voici une version mise à jour avec des étapes de débogage incluses :
+
+#!/bin/bash
+
+# Dossier racine des archives
+ARCHIVE_DIR="/dev/archive"
+
+# Fonction pour supprimer les dossiers sauf les deux plus récents
+process_table() {
+    local table_dir=$1
+
+    echo "Traitement de la table : $table_dir"
+
+    # Liste brute des sous-dossiers
+    echo "Contenu brut de $table_dir :"
+    hdfs dfs -ls "$table_dir"
+
+    # Liste des sous-dossiers avec leur chemin absolu, triés par date
+    folders=$(hdfs dfs -ls "$table_dir" | awk -v base_dir="$table_dir" '
+    $8 ~ /^[0-9]{8}_[0-9]{6}_[a-zA-Z0-9_]+$/ {
+        print $6, $7, base_dir "/" $8
+    }' | sort | awk '{print $3}')
+
+    echo "Dossiers filtrés dans $table_dir :"
+    echo "$folders"
+
+    # Vérifier s'il y a au moins trois dossiers pour appliquer la suppression
+    total_folders=$(echo "$folders" | wc -l)
+    if [ "$total_folders" -le 2 ]; then
+        echo "Table $table_dir : Moins de 2 dossiers, rien à supprimer."
+        return
+    fi
+
+    # Exclure les deux plus récents et supprimer le reste
+    folders_to_delete=$(echo "$folders" | head -n -2)
+    echo "Table $table_dir : Suppression des dossiers suivants :"
+    echo "$folders_to_delete"
+
+    # Suppression des dossiers
+    echo "$folders_to_delete" | while read -r folder; do
+        echo "Suppression : $folder"
+        hdfs dfs -rm -r "$folder" || echo "Erreur lors de la suppression : $folder"
+    done
+}
+
+export -f process_table
+
+# Liste des tables (sous-dossiers dans le dossier racine) avec leur chemin absolu
+tables=$(hdfs dfs -ls "$ARCHIVE_DIR" | awk -v base_dir="$ARCHIVE_DIR" '{print base_dir "/" $8}')
+
+echo "Tables détectées :"
+echo "$tables"
+
+# Parallélisme pour traiter les tables
+echo "$tables" | xargs -n 1 -P 4 -I {} bash -c 'process_table "$@"' _ {}
+
+
+---
+
+Vérifications supplémentaires :
+
+1. Le format attendu correspond-il ?
+
+Assurez-vous que les noms des dossiers respectent bien yyyymmjj_hhmmss_nom_table.
+
+
+
+2. Structure des sous-dossiers dans chaque table :
+
+Vérifiez si des fichiers ou des répertoires hors du format sont présents.
+
+
+
+3. Permissions et existence des tables :
+
+Si les tables ou dossiers sont inaccessibles (permissions ou inexistants), corrigez cela dans HDFS.
+
+
+
+
+
+---
+
+Avec ce script, vous pourrez identifier pourquoi la liste est vide et ajuster en conséquence. Si le problème persiste, fournissez un exemple concret des noms des fichiers et des sous-dossiers pour affiner la solution.
+
+
+
+
 D'accord, pour gérer cette contrainte, nous allons filtrer les sous-dossiers en fonction de leur nom pour ne sélectionner que ceux respectant le format yyyymmjj_hhmmss_nom_table. Ce format peut être validé avec une expression régulière dans awk.
 
 Voici une version corrigée du script :
