@@ -1,0 +1,116 @@
+Pour créer une table Hive réelle (mais temporaire pour les tests), voici comment procéder. Cela nécessite que votre SparkSession soit configurée avec le support Hive et que le stockage Hive soit accessible (par défaut, il utilise le répertoire configuré pour Hive dans l'environnement Spark).
+
+Code Python
+
+from pyspark.sql import SparkSession
+
+def create_hive_table_from_csv(spark, table_name, csv_path, delimiter=",", header=True, infer_schema=True):
+    """
+    Crée une table Hive permanente ou temporaire à partir d'un fichier CSV.
+
+    :param spark: SparkSession
+    :param table_name: Nom de la table Hive à créer
+    :param csv_path: Chemin du fichier CSV
+    :param delimiter: Délimiteur utilisé dans le fichier CSV (par défaut ",")
+    :param header: Indique si le CSV contient une ligne d'en-tête (par défaut True)
+    :param infer_schema: Déduit automatiquement le schéma du fichier CSV (par défaut True)
+    :return: None
+    """
+    # Lecture des données depuis le fichier CSV
+    df = spark.read.csv(
+        path=csv_path,
+        sep=delimiter,
+        header=header,
+        inferSchema=infer_schema
+    )
+
+    # Activation du mode Hive
+    spark.sql("USE default")  # Vous pouvez changer de base de données si nécessaire
+
+    # Création de la table Hive
+    df.write.mode("overwrite").saveAsTable(table_name)
+    print(f"Table Hive '{table_name}' créée avec succès.")
+
+# Exemple d'utilisation
+if __name__ == "__main__":
+    # Création d'une SparkSession avec support Hive
+    spark = SparkSession.builder \
+        .appName("Test Hive Table from CSV") \
+        .master("local[*]") \
+        .config("spark.sql.catalogImplementation", "hive") \
+        .enableHiveSupport() \
+        .getOrCreate()
+
+    # Chemin du fichier CSV
+    csv_path = "chemin/vers/votre_fichier.csv"
+
+    # Création de la table Hive
+    create_hive_table_from_csv(spark, "test_table", csv_path)
+
+    # Requête sur la table Hive
+    spark.sql("SELECT * FROM test_table").show()
+
+    # Arrêt de la session Spark
+    spark.stop()
+
+Étapes importantes
+
+1. Lecture du fichier CSV :
+
+Les données sont chargées directement depuis le fichier CSV.
+
+Les paramètres comme delimiter, header et infer_schema rendent le chargement flexible pour différents types de fichiers.
+
+
+
+2. Création de la table Hive :
+
+La méthode saveAsTable est utilisée pour écrire les données sous forme de table Hive.
+
+Le mode overwrite garantit que la table est recréée si elle existe déjà.
+
+
+
+3. Base de données Hive :
+
+La commande spark.sql("USE default") garantit que la table est créée dans la base de données par défaut. Vous pouvez changer la base de données avec USE <database>.
+
+
+
+4. Temporaire pour les tests :
+
+Les tables créées dans un environnement local (et non dans un cluster persistant) n'ont qu'une durée de vie limitée à la session Spark utilisée pour les tests.
+
+
+
+
+Exemple de fichier CSV
+
+data.csv :
+
+id,name,age
+1,Alice,29
+2,Bob,35
+3,Charlie,25
+
+Résultat attendu
+
+Après exécution :
+
+1. Une table Hive réelle nommée test_table est créée dans la base de données par défaut.
+
+
+2. Vous pouvez y accéder via des requêtes SQL comme :
+
+SELECT * FROM test_table;
+
+
+
+Remarque
+
+Si vous voulez supprimer cette table après les tests pour qu'elle reste temporaire, utilisez cette commande :
+
+spark.sql("DROP TABLE IF EXISTS test_table")
+
+Cela garantit qu'elle ne persiste pas au-delà des tests.
+
