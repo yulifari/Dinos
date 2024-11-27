@@ -1,0 +1,189 @@
+Si les données affichées après la lecture de la table Hive ne correspondent pas au fichier CSV, voici les étapes pour identifier et corriger le problème :
+
+
+---
+
+Étapes de débogage et solutions
+
+1. Vérifier le chemin du fichier CSV
+
+Assurez-vous que le chemin du fichier est correct et que Spark peut y accéder.
+
+Ajoutez un test pour vérifier que le fichier est bien lu :
+
+print("Chemin CSV:", csv_path)
+print("Extrait des données du fichier CSV:")
+df = spark.read.csv(
+    path=csv_path,
+    sep=delimiter,
+    header=header,
+    inferSchema=infer_schema
+)
+df.show()
+
+
+
+---
+
+2. Inspecter les données lues
+
+Erreur potentielle : Mauvaise détection du schéma.
+
+Si les types de colonnes sont mal inférés (ex. age en string au lieu de int), le problème peut venir de l'option inferSchema.
+
+Ajoutez un schéma explicite si vous connaissez les types des colonnes :
+
+from pyspark.sql.types import StructType, StructField, IntegerType, StringType
+
+schema = StructType([
+    StructField("id", IntegerType(), True),
+    StructField("name", StringType(), True),
+    StructField("age", IntegerType(), True)
+])
+df = spark.read.csv(
+    path=csv_path,
+    schema=schema,
+    sep=delimiter,
+    header=header
+)
+df.show()
+
+
+
+
+---
+
+3. Vérifier les données sauvegardées dans la table
+
+Erreur potentielle : La table est écrasée par d'autres données.
+
+Assurez-vous que la commande saveAsTable utilise un mode correct. Par exemple :
+
+df.write.mode("overwrite").saveAsTable(table_name)
+
+Cela garantit que les données écrasent toute table existante avec le même nom.
+
+
+Testez les données après l'écriture :
+
+print("Données sauvegardées dans la table Hive:")
+spark.sql(f"SELECT * FROM {table_name}").show()
+
+
+
+---
+
+4. Problème lié à Hive dans Spark (local)
+
+Erreur potentielle : Hive utilise un ancien fichier ou un répertoire non vide.
+
+Si Hive utilise un chemin par défaut pour sauvegarder ses tables, assurez-vous que ce répertoire est vide avant d'écrire.
+
+Supprimez la table avant d'en recréer une :
+
+spark.sql(f"DROP TABLE IF EXISTS {table_name}")
+df.write.mode("overwrite").saveAsTable(table_name)
+
+
+
+
+---
+
+5. Problème avec le délimiteur
+
+Si votre CSV utilise un délimiteur spécifique comme ; au lieu de ,, spécifiez-le correctement :
+
+delimiter = ";"
+df = spark.read.csv(
+    path=csv_path,
+    sep=delimiter,
+    header=header,
+    inferSchema=infer_schema
+)
+
+
+
+---
+
+Version finale corrigée
+
+Voici une version complète et robuste de la fonction, intégrant les vérifications ci-dessus :
+
+from pyspark.sql import SparkSession
+from pyspark.sql.types import StructType, StructField, IntegerType, StringType
+
+def create_hive_table_from_csv(spark, table_name, csv_path, delimiter=",", header=True):
+    """
+    Crée une table Hive à partir d'un fichier CSV, avec validation des données.
+
+    :param spark: SparkSession
+    :param table_name: Nom de la table Hive
+    :param csv_path: Chemin vers le fichier CSV
+    :param delimiter: Délimiteur utilisé dans le fichier CSV (par défaut ",")
+    :param header: Indique si le CSV contient une ligne d'en-tête (par défaut True)
+    :return: None
+    """
+    # Définir un schéma explicite
+    schema = StructType([
+        StructField("id", IntegerType(), True),
+        StructField("name", StringType(), True),
+        StructField("age", IntegerType(), True)
+    ])
+
+    # Lecture des données avec validation
+    df = spark.read.csv(
+        path=csv_path,
+        schema=schema,
+        sep=delimiter,
+        header=header
+    )
+    print("Données chargées depuis le CSV :")
+    df.show()
+
+    # Supprimer la table si elle existe déjà
+    spark.sql(f"DROP TABLE IF EXISTS {table_name}")
+
+    # Sauvegarder les données dans une table Hive
+    df.write.mode("overwrite").saveAsTable(table_name)
+    print(f"Table Hive '{table_name}' créée avec succès.")
+
+    # Vérifier les données dans la table
+    print("Données enregistrées dans la table Hive :")
+    spark.sql(f"SELECT * FROM {table_name}").show()
+
+# Exemple d'utilisation
+if __name__ == "__main__":
+    # Création d'une SparkSession avec support Hive
+    spark = SparkSession.builder \
+        .appName("Test Hive Table from CSV") \
+        .master("local[*]") \
+        .config("spark.sql.catalogImplementation", "hive") \
+        .enableHiveSupport() \
+        .getOrCreate()
+
+    # Chemin vers le fichier CSV
+    csv_path = "chemin/vers/votre_fichier.csv"
+
+    # Création de la table Hive
+    create_hive_table_from_csv(spark, "test_table", csv_path)
+
+    # Arrêt de la session Spark
+    spark.stop()
+
+
+---
+
+Résolution possible
+
+1. Si vous configurez tout correctement, les données lues dans la table Hive devraient correspondre exactement à celles du fichier CSV.
+
+
+2. Si le problème persiste, vérifiez :
+
+L'accès au fichier CSV.
+
+Les logs d'erreur pour des détails supplémentaires. Ajoutez des logs avec .explain() pour inspecter le plan Spark.
+
+
+
+
